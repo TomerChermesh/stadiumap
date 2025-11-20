@@ -1,12 +1,25 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { AIInsight, Stadium, Coordinates } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Initialize safely to prevent crash if env var is missing during development
+const apiKey = process.env.API_KEY || "";
+if (!apiKey) {
+  console.warn("Gemini API Key is missing. Features using AI will fail.");
+}
+
+const ai = new GoogleGenAI({ apiKey });
 
 /**
  * Fetches rich descriptions and fun facts about a stadium using Gemini.
  */
 export const fetchStadiumInsights = async (stadium: Stadium): Promise<AIInsight> => {
+  if (!apiKey) {
+    return {
+        description: "API Key missing. Please configure your environment.",
+        funFact: "Configure the API_KEY in your .env file to see AI insights."
+    };
+  }
+
   try {
     const prompt = `
       Provide a short, engaging description (max 50 words) and one unique, interesting fun fact about the football stadium "${stadium.name}" located in ${stadium.city}.
@@ -55,6 +68,8 @@ export const fetchStadiumInsights = async (stadium: Stadium): Promise<AIInsight>
  * Fetches a list of stadiums within a specific geographic bounding box.
  */
 export const fetchStadiumsInArea = async (bounds: { north: number, south: number, east: number, west: number }): Promise<Stadium[]> => {
+  if (!apiKey) return [];
+
   try {
     // Construct a prompt that asks for stadiums strictly within the view
     const prompt = `
