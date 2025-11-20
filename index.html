@@ -2,8 +2,9 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Stadiumap</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Stadiumap - World Football Explorer</title>
+    <link rel="icon" href="/favicon.ico" />
     <!-- Using Tailwind via CDN for simplicity. For a robust production build, consider installing tailwindcss via npm -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link
@@ -19,6 +20,7 @@
         margin: 0;
         padding: 0;
         overflow: hidden;
+        background-color: #0f172a; /* Pre-fill background color */
       }
       /* Custom Scrollbar */
       ::-webkit-scrollbar {
@@ -35,7 +37,7 @@
         background: #64748b;
       }
       .leaflet-container {
-        background: #0f172a; /* Slate 900 to match theme */
+        background: #0f172a;
         width: 100%;
         height: 100%;
       }
@@ -49,7 +51,7 @@
         animation: spin-slow 3s linear infinite;
       }
     </style>
-<script type="importmap">
+  <script type="importmap">
 {
   "imports": {
     "react": "https://aistudiocdn.com/react@^19.2.0",

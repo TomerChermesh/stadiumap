@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Tooltip, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Tooltip, useMapEvents, useMap } from 'react-leaflet';
 import { Icon, LatLngBoundsExpression } from 'leaflet';
 import { Trophy, MapPin, Users, Info, CheckCircle, X, Loader2, Search, Radar, LogIn, User, LogOut } from 'lucide-react';
 import { INITIAL_STADIUMS } from './constants';
@@ -38,6 +38,25 @@ const MapEvents = ({ onBoundsChange }: { onBoundsChange: (bounds: any, zoom: num
       onBoundsChange(map.getBounds(), map.getZoom());
     }
   });
+  return null;
+};
+
+// Critical Component: Fixes the "cut off" map issue by forcing a resize calculation
+const MapResizer = () => {
+  const map = useMap();
+  
+  useEffect(() => {
+    // Force invalidateSize immediately after mount
+    map.invalidateSize();
+    
+    // And again after a short delay to ensure container is fully rendered
+    const timer = setTimeout(() => {
+      map.invalidateSize();
+    }, 100);
+
+    return () => clearTimeout(timer);
+  }, [map]);
+
   return null;
 };
 
@@ -289,7 +308,8 @@ function App() {
   ];
 
   return (
-    <div className="relative w-full h-full bg-slate-950 font-sans overflow-hidden">
+    // Fixed positioning ensures it takes full viewport regardless of parents
+    <div className="fixed inset-0 bg-slate-950 font-sans overflow-hidden">
       
       <AuthModal 
         isOpen={isAuthModalOpen} 
@@ -316,8 +336,10 @@ function App() {
             noWrap={true}
           />
           
+          {/* Logic Components */}
           <MapController selectedCoordinates={selectedStadium?.coordinates || null} />
           <MapEvents onBoundsChange={handleBoundsChange} />
+          <MapResizer />
 
           {filteredStadiums.map((stadium) => {
             const isVisited = visitedIds.includes(stadium.id);
