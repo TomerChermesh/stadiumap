@@ -1,0 +1,5 @@
+{
+  "name": "Stadiumap",
+  "description": "A high-performance, interactive 3D-style world map tracking football stadiums globally. Features AI-powered insights, visited status tracking, and responsive design.",
+  "requestFramePermissions": []
+}
