@@ -499,8 +499,17 @@ function App() {
         </MapContainer>
       </div>
       
+      {/* Footer / Credits */}
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[999] pointer-events-none">
+         <div className="bg-slate-900/80 backdrop-blur px-4 py-2 rounded-full border border-slate-800 shadow-2xl flex items-center gap-2">
+            <span className="text-[10px] font-medium text-slate-400 tracking-wide">
+               © 2025 by Tomer Chermesh with <span className="text-purple-400 font-bold">Gemini 3 Pro</span>
+            </span>
+         </div>
+      </div>
+
       {/* Mobile Instruction Overlay */}
-      <div className="absolute bottom-6 right-6 z-[999] md:block hidden">
+      <div className="absolute bottom-16 right-6 z-[999] md:block hidden pointer-events-none">
          <div className="bg-slate-900/80 backdrop-blur text-slate-400 text-xs px-3 py-1.5 rounded-lg border border-slate-800 flex items-center gap-2 shadow-xl">
             {currentZoom < 6 ? (
                 <>
