@@ -137,3 +137,70 @@ export const fetchStadiumsInArea = async (bounds: { north: number, south: number
     return [];
   }
 };
+
+/**
+ * Search for a specific stadium by name if it's missing from the map.
+ */
+export const searchSingleStadium = async (query: string): Promise<Stadium | null> => {
+  if (!apiKey) return null;
+
+  try {
+    const prompt = `
+      Find the football stadium matching the search query: "${query}".
+      Return full details including precise coordinates.
+      If the query is not a real football stadium, return null.
+    `;
+
+    const stadiumSchema: Schema = {
+        type: Type.OBJECT,
+        properties: {
+            id: { type: Type.STRING },
+            name: { type: Type.STRING },
+            commonName: { type: Type.STRING, nullable: true },
+            city: { type: Type.STRING },
+            country: { type: Type.STRING },
+            capacity: { type: Type.NUMBER },
+            homeTeams: { 
+                type: Type.ARRAY, 
+                items: { type: Type.STRING } 
+            },
+            coordinates: {
+                type: Type.OBJECT,
+                properties: {
+                    lat: { type: Type.NUMBER },
+                    lng: { type: Type.NUMBER }
+                },
+                required: ["lat", "lng"]
+            },
+            imageUrl: { type: Type.STRING }
+        },
+        required: ["id", "name", "city", "country", "capacity", "homeTeams", "coordinates"]
+    };
+
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: stadiumSchema
+      }
+    });
+
+    const text = response.text;
+    if (!text) return null;
+    
+    const stadium = JSON.parse(text) as Stadium;
+    
+    // Basic validation to ensure it's not a hallucination of an empty object
+    if (!stadium.name || !stadium.coordinates) return null;
+
+    return {
+        ...stadium,
+        imageUrl: stadium.imageUrl || `https://picsum.photos/800/400?random=${Math.floor(Math.random() * 1000)}`
+    };
+
+  } catch (error) {
+    console.error("Error searching for stadium:", error);
+    return null;
+  }
+};

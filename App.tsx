@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Tooltip, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Tooltip, useMapEvents } from 'react-leaflet';
 import { Icon, LatLngBoundsExpression } from 'leaflet';
 import { Trophy, MapPin, Users, Info, CheckCircle, X, Loader2, Search, Radar, LogIn, User, LogOut } from 'lucide-react';
 import { INITIAL_STADIUMS } from './constants';
-import { Stadium, UserState, AIInsight, Coordinates } from './types';
+import { Stadium, AIInsight } from './types';
 import { MapController } from './components/MapController';
-import { fetchStadiumInsights, fetchStadiumsInArea } from './services/geminiService';
+import { fetchStadiumInsights, fetchStadiumsInArea, searchSingleStadium } from './services/geminiService';
 import { AuthModal } from './components/AuthModal';
 
 // Define custom marker icons
@@ -67,8 +67,10 @@ function App() {
   const [insights, setInsights] = useState<Record<string, AIInsight>>({});
   const [isLoadingInsight, setIsLoadingInsight] = useState<boolean>(false);
   const [isScanning, setIsScanning] = useState<boolean>(false);
+  const [isSearchingAI, setIsSearchingAI] = useState<boolean>(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentZoom, setCurrentZoom] = useState<number>(3);
+  const [searchError, setSearchError] = useState<string | null>(null);
   
   // Auth State
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -184,32 +186,7 @@ function App() {
         });
 
         if (newStadiums.length > 0) {
-          setAllStadiums(prev => {
-            const existingStadiums = prev;
-            
-            // Filter out new stadiums that are duplicates
-            const uniqueNew = newStadiums.filter(newS => {
-              // 1. Check ID duplication (basic)
-              const idExists = existingStadiums.some(exS => exS.id === newS.id);
-              if (idExists) return false;
-
-              // 2. Check Geographic Proximity (Advanced Deduplication)
-              // If a stadium is within 1000 meters of an existing one, assume it's the same.
-              const isDuplicateGeo = existingStadiums.some(exS => {
-                const dist = getDistanceFromLatLonInMeters(
-                  newS.coordinates.lat, 
-                  newS.coordinates.lng, 
-                  exS.coordinates.lat, 
-                  exS.coordinates.lng
-                );
-                return dist < 1000; // 1km threshold
-              });
-
-              return !isDuplicateGeo;
-            });
-
-            return [...prev, ...uniqueNew];
-          });
+          addNewStadiumsToState(newStadiums);
         }
         scannedAreas.current.add(areaKey);
       } catch (e) {
@@ -218,6 +195,35 @@ function App() {
         setIsScanning(false);
       }
     }, 1000); // 1s debounce
+  };
+
+  const addNewStadiumsToState = (newStadiums: Stadium[]) => {
+    setAllStadiums(prev => {
+      const existingStadiums = prev;
+      
+      // Filter out new stadiums that are duplicates
+      const uniqueNew = newStadiums.filter(newS => {
+        // 1. Check ID duplication (basic)
+        const idExists = existingStadiums.some(exS => exS.id === newS.id);
+        if (idExists) return false;
+
+        // 2. Check Geographic Proximity (Advanced Deduplication)
+        // If a stadium is within 1000 meters of an existing one, assume it's the same.
+        const isDuplicateGeo = existingStadiums.some(exS => {
+          const dist = getDistanceFromLatLonInMeters(
+            newS.coordinates.lat, 
+            newS.coordinates.lng, 
+            exS.coordinates.lat, 
+            exS.coordinates.lng
+          );
+          return dist < 1000; // 1km threshold
+        });
+
+        return !isDuplicateGeo;
+      });
+
+      return [...prev, ...uniqueNew];
+    });
   };
 
   const filteredStadiums = useMemo(() => {
@@ -235,6 +241,7 @@ function App() {
     // 2. Filter by Zoom Level (Level of Detail)
     // Zoom < 5: Show only Initial Major Stadiums (to avoid clutter when zoomed out)
     // Zoom >= 5: Show All
+    // Exception: If searching, show matches regardless of zoom
     if (currentZoom < 5 && !searchTerm) {
       const initialIds = new Set(INITIAL_STADIUMS.map(s => s.id));
       results = results.filter(s => initialIds.has(s.id));
@@ -243,16 +250,46 @@ function App() {
     return results;
   }, [searchTerm, allStadiums, currentZoom]);
 
+  const handleSearchSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!searchTerm.trim()) return;
+
+    // Check if we already have matches
+    if (filteredStadiums.length > 0) {
+      // Just select the first one if exact match, or let user choose from map
+      if (filteredStadiums[0].name.toLowerCase() === searchTerm.toLowerCase()) {
+         handleStadiumSelect(filteredStadiums[0]);
+      }
+      return;
+    }
+
+    // If no matches locally, ask AI to find it
+    setIsSearchingAI(true);
+    setSearchError(null);
+    try {
+      const foundStadium = await searchSingleStadium(searchTerm);
+      if (foundStadium) {
+        addNewStadiumsToState([foundStadium]);
+        handleStadiumSelect(foundStadium);
+        setSearchTerm(''); // Clear search to show the new stadium naturally
+      } else {
+        setSearchError("Couldn't find a stadium with that name.");
+      }
+    } catch (err) {
+      setSearchError("Error searching for stadium.");
+    } finally {
+      setIsSearchingAI(false);
+    }
+  };
+
   const visitedCount = visitedIds.length;
-  const totalCount = allStadiums.length;
-  
   const maxBounds: LatLngBoundsExpression = [
     [-90, -180],
     [90, 180]
   ];
 
   return (
-    <div className="flex h-screen w-screen relative bg-slate-950 font-sans">
+    <div className="relative w-full h-full bg-slate-950 font-sans overflow-hidden">
       
       <AuthModal 
         isOpen={isAuthModalOpen} 
@@ -260,8 +297,52 @@ function App() {
         onLogin={handleLogin} 
       />
 
-      {/* Left Sidebar / Overlay - Desktop */}
-      <div className="absolute top-4 left-4 z-[1000] w-80 md:w-96 flex flex-col gap-4 pointer-events-none">
+      {/* Map Container - ABSOLUTE POSITIONING TO FIX LAYOUT BUGS */}
+      <div className="absolute inset-0 z-0">
+        <MapContainer 
+          center={[20, 0]} 
+          zoom={3} 
+          minZoom={2}
+          maxBounds={maxBounds}
+          maxBoundsViscosity={1.0}
+          scrollWheelZoom={true} 
+          style={{ height: '100%', width: '100%', background: '#0f172a' }}
+          zoomControl={false}
+        >
+           {/* Dark Mode Tiles with noWrap to prevent repetition */}
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+            noWrap={true}
+          />
+          
+          <MapController selectedCoordinates={selectedStadium?.coordinates || null} />
+          <MapEvents onBoundsChange={handleBoundsChange} />
+
+          {filteredStadiums.map((stadium) => {
+            const isVisited = visitedIds.includes(stadium.id);
+            const isSelected = selectedStadium?.id === stadium.id;
+
+            return (
+              <Marker
+                key={stadium.id}
+                position={[stadium.coordinates.lat, stadium.coordinates.lng]}
+                icon={createCustomIcon(isVisited, isSelected)}
+                eventHandlers={{
+                  click: () => handleStadiumSelect(stadium),
+                }}
+              >
+                <Tooltip direction="top" offset={[0, -30]} opacity={1} className="custom-tooltip">
+                    <span className="font-bold">{stadium.name}</span>
+                </Tooltip>
+              </Marker>
+            );
+          })}
+        </MapContainer>
+      </div>
+
+      {/* UI Overlay Layer - Z-Index 10 */}
+      <div className="absolute top-4 left-4 z-10 w-80 md:w-96 flex flex-col gap-4 pointer-events-none">
         
         {/* Header Card */}
         <div className="bg-slate-900/95 backdrop-blur-md border border-slate-700 p-6 rounded-2xl shadow-2xl pointer-events-auto">
@@ -313,16 +394,32 @@ function App() {
              </div>
           </div>
 
-          <div className="relative">
+          <form onSubmit={handleSearchSubmit} className="relative">
             <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
             <input 
               type="text" 
-              placeholder="Search stadium, city or team..."
+              placeholder="Search stadium..."
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-700 text-slate-200 text-sm rounded-xl pl-10 pr-4 py-2.5 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all placeholder:text-slate-600"
+              onChange={(e) => { setSearchTerm(e.target.value); setSearchError(null); }}
+              className="w-full bg-slate-950 border border-slate-700 text-slate-200 text-sm rounded-xl pl-10 pr-10 py-2.5 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all placeholder:text-slate-600"
             />
-          </div>
+            {isSearchingAI && (
+                <div className="absolute right-3 top-2.5">
+                    <Loader2 className="w-4 h-4 animate-spin text-emerald-500" />
+                </div>
+            )}
+          </form>
+          
+          {searchError && (
+            <div className="mt-2 text-xs text-red-400 bg-red-400/10 p-2 rounded border border-red-400/20 animate-in fade-in">
+                {searchError}
+            </div>
+          )}
+          {searchTerm && filteredStadiums.length === 0 && !isSearchingAI && !searchError && (
+             <div className="mt-2 text-[10px] text-slate-500 text-center">
+                Press Enter to search globally with AI
+             </div>
+          )}
         </div>
 
         {/* Scanning Indicator */}
@@ -384,7 +481,9 @@ function App() {
               </button>
               
               {!currentUser && !visitedIds.includes(selectedStadium.id) && (
-                  <p className="text-xs text-slate-500 text-center -mt-4 mb-4">Login to save this permanently</p>
+                  <p className="text-xs text-slate-500 text-center -mt-4 mb-4">
+                      <button onClick={() => setIsAuthModalOpen(true)} className="underline hover:text-emerald-400">Login</button> to save this permanently
+                  </p>
               )}
 
               {/* Details Grid */}
@@ -455,52 +554,10 @@ function App() {
         )}
       </div>
 
-      {/* Map Area */}
-      <div className="flex-1 h-full w-full bg-[#0f172a]">
-        <MapContainer 
-          center={[20, 0]} 
-          zoom={3} 
-          minZoom={2}
-          maxBounds={maxBounds}
-          maxBoundsViscosity={1.0}
-          scrollWheelZoom={true} 
-          style={{ height: '100%', width: '100%', background: '#0f172a' }}
-          zoomControl={false}
-        >
-           {/* Dark Mode Tiles with noWrap to prevent repetition */}
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-            noWrap={true}
-          />
-          
-          <MapController selectedCoordinates={selectedStadium?.coordinates || null} />
-          <MapEvents onBoundsChange={handleBoundsChange} />
-
-          {filteredStadiums.map((stadium) => {
-            const isVisited = visitedIds.includes(stadium.id);
-            const isSelected = selectedStadium?.id === stadium.id;
-
-            return (
-              <Marker
-                key={stadium.id}
-                position={[stadium.coordinates.lat, stadium.coordinates.lng]}
-                icon={createCustomIcon(isVisited, isSelected)}
-                eventHandlers={{
-                  click: () => handleStadiumSelect(stadium),
-                }}
-              >
-                <Tooltip direction="top" offset={[0, -30]} opacity={1} className="custom-tooltip">
-                    <span className="font-bold">{stadium.name}</span>
-                </Tooltip>
-              </Marker>
-            );
-          })}
-        </MapContainer>
-      </div>
       
-      {/* Footer / Credits */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[999] pointer-events-none">
+      
+      {/* Footer / Credits - Absolute Bottom */}
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
          <div className="bg-slate-900/80 backdrop-blur px-4 py-2 rounded-full border border-slate-800 shadow-2xl flex items-center gap-2">
             <span className="text-[10px] font-medium text-slate-400 tracking-wide">
                © 2025 by Tomer Chermesh with <span className="text-purple-400 font-bold">Gemini 3 Pro</span>
@@ -509,7 +566,7 @@ function App() {
       </div>
 
       {/* Mobile Instruction Overlay */}
-      <div className="absolute bottom-16 right-6 z-[999] md:block hidden pointer-events-none">
+      <div className="absolute bottom-16 right-6 z-10 md:block hidden pointer-events-none">
          <div className="bg-slate-900/80 backdrop-blur text-slate-400 text-xs px-3 py-1.5 rounded-lg border border-slate-800 flex items-center gap-2 shadow-xl">
             {currentZoom < 6 ? (
                 <>
